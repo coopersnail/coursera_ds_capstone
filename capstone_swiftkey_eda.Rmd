@@ -183,7 +183,7 @@ system.time(twit_sample <- VCorpus(VectorSource(twit2))) # 37.99 sec
 ```
 
 **Clean Corpus:**
-The function is created, modeled after the wonderful [video](http://www.youtube.com/watch?v=j1V2McKbkLo) by Timothy DAuria, to remove certain elements of the corpus, i.e. extra white spaces, punctuation, number, stop words, sparse terms, to covert text to lower case, and to perform stemming, if desired. Some of the procedures will sacrifice accuracy for "cleaner" and easier-to-handle data. For example, converting all characters to lower case will make "windows" and "Windows" (the operation system) indistinguishable. Code for the function can be found [here](https://github.com/coopersnail/coursera_ds_capstone).
+The function is created, modeled after the wonderful [video](http://www.youtube.com/watch?v=j1V2McKbkLo) by Timothy DAuria, to remove certain elements of the corpus, i.e. extra white spaces, punctuation, number, stop words, sparse terms, to covert text to lower case, and to perform stemming, if desired. Some of the procedures will sacrifice accuracy for "cleaner" and easier-to-handle data. For example, converting all characters to lower case will make "windows" and "Windows" (the operating system) indistinguishable. Code for the function can be found [here](https://github.com/coopersnail/coursera_ds_capstone).
 
 ```{r, results='hide', echo=FALSE}
 cleanCorpus <- function(corpus, remove_numbers = FALSE, 
@@ -317,6 +317,7 @@ ggplot(bs_uni_20, aes(x=words, y=frequency)) +
 ```
 
 Here are the terms with the highest frequecy in news.
+
 ```{r, echo=FALSE, fig.width=10}
 ns_uni_row_total <- row_sums(ns_tdm)
 # summary(ns_uni_row_total)
@@ -331,7 +332,7 @@ ggplot(ns_uni_20, aes(x=words, y=frequency)) +
     geom_text(aes(label=frequency), vjust = -0.5)
 ```
 
-Compared them with ones in news and tweets. 
+Compared them with ones in tweets. 
 
 ```{r, echo=FALSE, fig.width=10}
 ts_uni_row_total <- row_sums(ts_tdm)
