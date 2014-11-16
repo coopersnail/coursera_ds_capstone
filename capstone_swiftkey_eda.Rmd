@@ -1,0 +1,455 @@
+---
+title: "Language Modeling - A Coursera Data Science Capstone Project, the Exploratory Milestone Report"
+author: "CS"
+date: "Sunday, November 16, 2014"
+output: html_document
+---
+
+##Summary 
+The current project focuses on building a predictive language model based on data from [HC Corpora](http://www.corpora.heliohost.org/aboutcorpus.html). Exploratory analyses were conducted on blog, news, and twitter feeds in the English language. Data can be downloaded from [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip). The current report summarizes the preliminary exploration of data. Because blogs, news, and tweets have very different linguistic styles, to better understand each corpus, exploratory analysis is done separately. The data may be combined later for predictive modeling. For brevity, most codes are not shown or shown only for the blog corpus as an example. Complete codes can be found [here](https://github.com/coopersnail/coursera_ds_capstone).
+
+```{r, results='hide', echo=FALSE}
+# Clear working environment
+# rm(list=ls())
+```
+
+**Load libraries**
+```{r, results='hide'}
+# Import libaries
+libs <- c('tm', 'ggplot2', 'openNLP', 'RWeka', 'slam', 'knitr')
+lapply(libs, require, character.only = TRUE)
+```
+
+
+```{r, results='hide', echo=FALSE}
+# **Initiate environment**
+
+# Set working directory
+# setwd("~/Online_Classes/data_science_coursera/capstone/swiftkey_train_data/en_US")
+# setwd("~/Documents/data_science_coursera/capstone/swiftkey_train_data/en_US")
+
+# Global options
+options(stringsAsFactors = FALSE)
+options(scipen=999)
+# suppress warning
+# options(warn=-1)
+# library(knitr)
+opts_chunk$set(cache = TRUE)
+
+# Global variables
+feed <- c('blogs', 'news', 'twitter') # confirm syntax, need to list()?
+# feed_sample <- paste0('sample.', feed)
+feed_sample <- paste0(feed, '.sample10')
+pathname <- "~/Online_Classes/data_science_coursera/capstone/swiftkey_train_data/en_US/"
+# pathname <- "~/Documents/data_science_coursera/capstone/swiftkey_train_data/en_US/"
+
+# the modified george carlin's 7 dirty words
+profanity <- c("shit", "fuck", "cunt", "cocksucker", "motherfucker", "tits", "twat")
+
+# unix web2 english dictionary file
+# con_dict <- file("/usr/share/dict/web2", "r")
+# en_dict <- readLines(con_dict)
+# close(con_dict)
+```
+
+##Task 0: Understanding the Problem
+```{r, results='hide'}
+# read file
+con1 <- file("~/Online_Classes/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.blogs.txt", "r")
+# con1 <- file("~/Documents/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.blogs.txt", "r")
+blog <- readLines(con1)
+close(con1)
+format(object.size(blog), units="MB")
+length(blog)
+```
+```{r, results='hide', echo=FALSE}
+bsize <-format(object.size(blog), units="MB")
+blen <- length(blog)
+```
+
+```{r, results='hide', echo=FALSE}
+con2 <- file("~/Online_Classes/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.news.txt", "r")
+# con2 <- file("~/Documents/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.news.txt", "r")
+news <- readLines(con2)
+close(con2)
+nsize <-format(object.size(news), units="MB")
+nlen <- length(news)
+
+con3 <- file("~/Online_Classes/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.twitter.txt", "r")
+# con3 <- file("~/Documents/data_science_coursera/capstone/swiftkey_train_data/en_US/en_US.twitter.txt", "r")
+twit <- readLines(con3, skipNul = T) 
+# there is a special ending in the tweets that is interpreted as nul by mac
+close(con3)
+tsize <-format(object.size(twit), units="MB")
+tlen <- length(twit)
+```
+The blog, news, and twitter corpora have a size of `r bsize`, `r nsize`, and `r tsize`; and there are `r blen`, `r nlen`, and `r tlen` lines, respecitively. Note that the news data has unexpectedly few lines. Running the code in Mac and command line `wc -l en_US.news.txt` confirm that the actual number of lines is 1010242. This is likely to be caused by the Windows OS mishandling some characters/lines. 
+
+The Brief summaries of entries in each corpora are given by simply counting characters.
+**blog**
+```{r}
+summary(nchar(blog))
+```
+
+**news**
+```{r, echo=FALSE}
+summary(nchar(news))
+```
+
+**twitter**
+```{r, echo=FALSE}
+summary(nchar(twit))
+# max(nchar(twit))
+```
+The results are largely unsurprising, with blogs and news having much longer entry than tweets. However, the longest entry in twitter exceeds the known maximum, 140 characters. Running the same code on a Mac, however, yields the expected 140 characters. Again, this suggests the Windows OS misinterprets some special characters. This may also be the case for the Mac for other characters.  
+
+## Task 1: Data Acquisition and Cleaning 
+The warning messages while reading files and the expected results are likely produced by unprintable characters such as control characters. Theerefore, these characters are removed using the command line: `tr -cd '\11\12\15\40-\176' < en_US.blogs.txt > en_US.blogs.filt.txt`. 
+
+**Sampling the data:**
+Given the large size of the original files, the remaining analyses are done on a sample of 10% of the orginal data. Larger samples may be used for later predictions. This can be achieved by creating a vector of uniformly distributed random numbers of the length of a corpus, e.g. `runif(length(blog))`.
+
+```{r, results='hide', echo=FALSE}
+# createUnif <- function(line_vec){
+#         # takes a line_vector and create uniform distribution of the same length
+#         set.seed(1116)
+#         vlen <- length(line_vec)
+#         vunif <- runif(vlen)
+#         # return(vunif)
+#         return(data.frame(lines = line_vec, unif_prob = vunif,
+#                           stringsAsFactors = F))
+# }
+# 
+# sampleFeed <- function(feed_df, percent){
+#         # take feed dataframe, the first column of which should
+#         # be the lines and second column should be the unif_prob,
+#         # and sample from it the given percentage
+#         feed_sample <- feed_df$lines[feed_df$unif_prob <= percent]
+#         return(feed_sample)
+# }
+```
+
+```{r, results='hide', echo=FALSE}
+# functions for reading and writing files
+feedStdIO <- function(type, path, add_name = "", action = "r", output = NULL){
+        feed_file <- sprintf("%sen_US.%s.txt", path, type)
+        feed_file2 <- sprintf("%sen_US.%s.%s.txt", path, type, add_name)
+        #feed_file2 <- sprintf("%sen_US.sample.%s.txt", path, type)
+        if (action == "r"){
+                con <- file(feed_file, "r")
+                feed_lines <- readLines(con, skipNul = T) 
+                close(con)
+                return(list(feed = type, lines = feed_lines))
+        }
+        if (action == "w"){
+                con <- file(feed_file2, "w")
+                feed_lines <- writeLines(text = output, con = con) 
+                close(con)
+        }
+}
+
+ls_sample <- lapply(feed_sample, feedStdIO, path = pathname, action = "r")
+# str(ls_sample)
+blog <- ls_sample[[1]][[2]]
+news <- ls_sample[[2]][[2]]
+twit <- ls_sample[[3]][[2]]
+```
+
+Non-numeral-alphabetical characters except apostrophes are replaced with " ". While there is a `removePunctuation` in the `tm` package, simply removing punctuations can sometimes lead to non-words, e.g. coursera.org becomes courseraorg. Apostrophes are retained for later removal of [stop words](http://en.wikipedia.org/wiki/Stop_words) like "don't".
+```{r, results='hide'}
+blog2 <- gsub("[^[:alnum:][:space:]']", " ", blog)
+```
+```{r, echo=FALSE}
+# head(blog2)
+```
+
+```{r, results='hide', echo=FALSE}
+news2 <- gsub("[^[:alnum:][:space:]']", " ", news)
+twit2 <- gsub("[^[:alnum:][:space:]']", " ", twit)
+```
+The sampled character objects are converted into so-called [volatile corpora](http://cran.r-project.org/web/packages/tm/vignettes/tm.pdf) for further processsing. 
+```{r, results='hide'}
+# system runtime in seconds is recorded to estimate scalability
+system.time(blogs_sample <- VCorpus(VectorSource(blog2))) #19.44 sec
+```
+```{r, echo=FALSE}
+print("blog.sample10 is ")
+blogs_sample
+```
+
+```{r, results='hide', echo=FALSE}
+system.time(news_sample <- VCorpus(VectorSource(news2))) # 15.28 sec
+system.time(twit_sample <- VCorpus(VectorSource(twit2))) # 37.99 sec
+```
+
+**Clean Corpus:**
+The function is created, modeled after the wonderful [video](http://www.youtube.com/watch?v=j1V2McKbkLo) by Timothy DAuria, to remove certain elements of the corpus, i.e. extra white spaces, punctuation, number, stop words, sparse terms, to covert text to lower case, and to perform stemming, if desired. Some of the procedures will sacrifice accuracy for "cleaner" and easier-to-handle data. For example, converting all characters to lower case will make "windows" and "Windows" (the operation system) indistinguishable. Code for the function can be found [here](https://github.com/coopersnail/coursera_ds_capstone).
+
+```{r, results='hide', echo=FALSE}
+cleanCorpus <- function(corpus, remove_numbers = FALSE, 
+                        remove_stopwords = FALSE, stopwords = "SMART", 
+                        remove_punct = FALSE,
+                        stem = FALSE, 
+                        remove_sparse = FALSE, sparse_factor = "0.9"){
+    require('tm')
+    print('start to clean corpus...')
+    corpus2 <- corpus
+            
+    print('remove extra whitespaces...')
+    corpus2 <- tm_map(corpus2, stripWhitespace) # collapse multiple white space characters into single blank
+    
+    # convert to lower case
+    # do first because otherwise some of the stopwords won't be removed 
+    print('convert to lower case...')
+    corpus2 <- tm_map(corpus2, content_transformer(tolower)) # convert to lower case
+    # !!! in later version of tm must use content_transformer(tolower) wrapper
+    
+    # remove stopwords before punctuation because SMART stopwords include puncuations
+    if (remove_stopwords){
+           print(paste('remove',  'stopwords =', stopwords, '...'))
+           corpus2 <- tm_map(corpus2, removeWords, stopwords(stopwords)) #!!! again may not want to remove the english "stopwords" for prediction
+    # but consider removing a profanity list 
+    }
+    
+    if (remove_punct){
+           print('remove puncutation...')
+           corpus2 <- tm_map(corpus2, removePunctuation) # perhaps keep puctuations for prediction?
+ 
+    }
+
+    if (remove_numbers){
+           print('remove numbers...') 
+           corpus2 <- tm_map(corpus2, removeNumbers) 
+    }
+
+    if (stem){
+            print('word stemming...')
+            corpus2 <- tm_map(corpus2, stemDocument)
+    }
+    if (remove_sparse){
+            print('remove sparse words...')
+            corpus2 <- removeSparseTerms(corpus2, sparse_factor)
+    }
+    
+    return(corpus2)
+}
+
+# create a separate remove words function because this is the bottle neck 
+removeCustomWords <- function(corpus, stopwords = "english"){
+        require('tm')
+        corpus <- tm_map(corpus, removeWords, stopwords)
+}
+
+#!!! to remove all numbers may need to use regex because some numbers are not separated from characters by space
+
+```
+
+```{r, results='hide', echo=FALSE}
+p_profan <- round(sum(grepl(paste(profanity,collapse="|"),blog2))/length(blog2) * 100, 2)
+```
+Furthermore, simple profanity filtering is done by removing a modified list of [George Carlin's seven dirty words](http://en.wikipedia.org/wiki/Seven_dirty_words). The amount of profanity in the corpus is relatively small, e.g. `r p_profan`percent in the blog data. 
+
+The cleaned corpus is then converted to a [Term Document Matrix](http://cran.r-project.org/web/packages/tm/vignettes/tm.pdf), that describes the frequency of terms (words/phrases) that occur in a collection of documents (our corpora).
+
+```{r, results='hide'}
+system.time(bs_clean <- cleanCorpus(blogs_sample, remove_numbers = T)) # 14.95 sec
+system.time(bs_tdm <- TermDocumentMatrix(bs_clean)) # 49.67 sec
+```
+
+Certain words are very common in the English language but they are often functional words that do not convey much content, e.g. "the". These words are often considered [stop words](http://en.wikipedia.org/wiki/Stop_words) that are to be filtered out before further analysis of a corpus. Otherwise, frequency analysis of the corpus will be dominated by such stop words as shown below in the top 20 most frequent words in the blog data. Thus, in the current report, for a better assessment of content, stop words from [this list](http://jmlr.csail.mit.edu/papers/volume5/lewis04a/a11-smart-stop-list/english.stop) are removed. However, for building a predictive model involving later, the stop words should probably be kept. 
+
+```{r, echo=FALSE}
+bs_uni_row_total <- row_sums(bs_tdm)
+bs_uni_sort <- sort(bs_uni_row_total, decreasing = T)
+head(bs_uni_sort, 20) 
+bs_withstop <- sum(bs_uni_row_total)
+```
+
+
+```{r, results='hide'}
+system.time(bs_clean <- cleanCorpus(blogs_sample, remove_numbers = T, remove_stopwords = T)) # 86.04 sec
+system.time(bs_tdm <- TermDocumentMatrix(bs_clean)) # 42.25 sec
+```
+
+```{r, results='hide', echo=FALSE}
+# profanity filter
+system.time(bs_clean <- removeCustomWords(bs_clean, stopwords = profanity)) # 14.424 sec
+```
+
+```{r, results='hide', echo=FALSE}
+# clean corpus
+# news
+system.time(ns_clean <- cleanCorpus(news_sample, remove_numbers = T, remove_stopwords = T)) # 92.79 sec
+system.time(ns_clean <- removeCustomWords(ns_clean, stopwords = profanity)) # 12.45 sec
+
+# twit
+system.time(ts_clean <- cleanCorpus(twit_sample, remove_numbers = T, remove_stopwords = T)) # 161.11 sec
+system.time(ts_clean <- removeCustomWords(ts_clean, stopwords = profanity)) # 27.77 sec 
+```
+
+```{r, results='hide', echo=FALSE}
+system.time(ns_tdm <- TermDocumentMatrix(ns_clean)) # 47.50 sec 
+system.time(ts_tdm <- TermDocumentMatrix(ts_clean)) # 102.41 sec
+```
+
+##Task 2: Exploratory Data Analysis
+**Build n-grams:** [n-grams](http://en.wikipedia.org/wiki/N-gram) are continuous sequences of terms/words in a given text, e.g. unigrams are singular terms. Note the content-related difference in the top 20 most frequent words below after removing the stop words. 
+```{r}
+bs_uni_row_total <- row_sums(bs_tdm)
+summary(bs_uni_row_total)
+bs_uni_sort <- sort(bs_uni_row_total, decreasing = T)
+# head(bs_uni_sort, 20) 
+```
+```{r, results='hide', echo=FALSE}
+bs_withoutstop <- sum(bs_uni_row_total)
+```
+With the stop words there are a total of `r bs_withstop` word instances; without them there are `r bs_withoutstop`.  
+
+```{r, results='hide', echo=FALSE, fig.width=10}
+bs_uni_sort <- data.frame(frequency = bs_uni_sort)
+bs_uni_20 <- data.frame(frequency = bs_uni_sort, words = row.names(bs_uni_sort))
+bs_uni_20 <- data.frame(bs_uni_20[1:20, ])
+
+ggplot(bs_uni_20, aes(x=words, y=frequency)) +
+    geom_bar(stat="Identity", fill="red") +
+    geom_text(aes(label=frequency), vjust = -0.5)
+
+```
+
+Here are the terms with the highest frequecy in news.
+```{r, echo=FALSE, fig.width=10}
+ns_uni_row_total <- row_sums(ns_tdm)
+# summary(ns_uni_row_total)
+ns_uni_sort <- sort(ns_uni_row_total, decreasing = T)
+# head(ns_uni_sort, 20) 
+ns_uni_sort <- data.frame(frequency = ns_uni_sort)
+ns_uni_20 <- data.frame(frequency = ns_uni_sort, words = row.names(ns_uni_sort))
+ns_uni_20 <- data.frame(ns_uni_20[1:20, ])
+
+ggplot(ns_uni_20, aes(x=words, y=frequency)) +
+    geom_bar(stat="Identity", fill="red") +
+    geom_text(aes(label=frequency), vjust = -0.5)
+```
+
+Compared them with ones in news and tweets. 
+
+```{r, echo=FALSE, fig.width=10}
+ts_uni_row_total <- row_sums(ts_tdm)
+# summary(ts_uni_row_total)
+ts_uni_sort <- sort(ts_uni_row_total, decreasing = T)
+# head(ts_uni_sort, 20) 
+ts_uni_sort <- data.frame(frequency = ts_uni_sort)
+ts_uni_20 <- data.frame(frequency = ts_uni_sort, words = row.names(ts_uni_sort))
+ts_uni_20 <- data.frame(ts_uni_20[1:20, ])
+
+ggplot(ts_uni_20, aes(x=words, y=frequency)) +
+    geom_bar(stat="Identity", fill="red") +
+    geom_text(aes(label=frequency), vjust = -0.5)
+```
+
+**Compare word frequency distribution in blogs, news, and tweets:**
+From the summary data above, the frequency distributions of terms are extremely skewed. Frequencies are log10 transformed for plotting. In the plot below, red represents blogs, blue represents news, and green represents tweets. The distributions are quite similar as they largely overlap. Howver, the twitter data have more words that occur only once, probably due to stylized words like "aahhh" and "ahahahaha".
+```{r, echo=FALSE, fig.width=8}
+# blog
+bs_uni_sort_log <- bs_uni_sort
+bs_uni_sort_log$type <- 'blog'
+bs_uni_sort_log$frequency <- log10(bs_uni_sort_log$frequency)
+# head(bs_uni_sort_log, 1)
+
+# news
+ns_uni_sort_log <- ns_uni_sort
+ns_uni_sort_log$type <- 'news'
+ns_uni_sort_log$frequency <- log10(ns_uni_sort_log$frequency)
+
+# twitter
+ts_uni_sort_log <- ts_uni_sort
+ts_uni_sort_log$type <- 'twitter'
+ts_uni_sort_log$frequency <- log10(ts_uni_sort_log$frequency)
+
+# combine for plotting
+combined <- rbind(bs_uni_sort_log, ns_uni_sort_log, ts_uni_sort_log)
+ggplot(data=combined, aes(x=frequency)) + 
+    xlab("log 10 frequency") +
+    geom_histogram(data=subset(combined, type == 'blog'), fill = "red", alpha = 0.2) + 
+    geom_histogram(data=subset(combined, type == 'news'), fill = "blue", alpha = 0.2) +
+    geom_histogram(data=subset(combined, type == 'twitter'), fill = "green", alpha = 0.2)  
+
+```
+
+**Bi-grams and tri-grams:** Next, bi-grams and tri-grams are built. Here are the top 20 most frequent bi-grams and tri-grams sampled from the blog data. 
+```{r, results='hide'}
+# set the default number of threads to use
+options(mc.cores=1) # needed for n-gram function, works better with single thread
+
+# create bigrams
+# !!! consider experimenting with the delimiters for future analysis
+# default should be ' \r\n\t.,;:'"()?!'
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+system.time(bs_bi_tdm <- TermDocumentMatrix(bs_clean, control = list(tokenize = BigramTokenizer))) # 141.43 sec
+
+# trigram
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+system.time(bs_tri_tdm <- TermDocumentMatrix(bs_clean, control = list(tokenize = TrigramTokenizer))) # 147.46 sec
+# str(bs_tri_tdm)
+```
+
+```{r, results='hide', echo=FALSE}
+# system.time(ns_bi_tdm <- TermDocumentMatrix(ns_clean, control = list(tokenize = BigramTokenizer))) # 166.83 sec
+# system.time(ts_bi_tdm <- TermDocumentMatrix(ts_clean, control = list(tokenize = BigramTokenizer))) # 358.51 sec
+# 
+# system.time(ns_tri_tdm <- TermDocumentMatrix(ns_clean, control = list(tokenize = TrigramTokenizer))) # 174.83 sec
+# system.time(ts_tri_tdm <- TermDocumentMatrix(ts_clean, control = list(tokenize = TrigramTokenizer))) # 375.47 sec
+```
+
+
+```{r}
+bs_bi_row_total <- row_sums(bs_bi_tdm)
+bs_bi_sort <- sort(bs_bi_row_total, decreasing = T)
+head(bs_bi_sort, 20)
+
+bs_tri_row_total <- row_sums(bs_tri_tdm)
+bs_tri_sort <- sort(bs_tri_row_total, decreasing = T)
+head(bs_tri_sort, 20)
+```
+
+```{r, results='hide', echo=FALSE}
+# # news
+# ns_bi_row_total <- row_sums(ns_bi_tdm)
+# ns_bi_sort <- sort(ns_bi_row_total, decreasing = T)
+# head(ns_bi_sort, 20)
+# 
+# ns_tri_row_total <- row_sums(ns_tri_tdm)
+# ns_tri_sort <- sort(ns_tri_row_total, decreasing = T)
+# head(ns_tri_sort, 20)
+# 
+# # twitter
+# ts_bi_row_total <- row_sums(ts_bi_tdm)
+# ts_bi_sort <- sort(ts_bi_row_total, decreasing = T)
+# head(ts_bi_sort, 20)
+# 
+# ts_tri_row_total <- row_sums(ts_tri_tdm)
+# ts_tri_sort <- sort(ts_tri_row_total, decreasing = T)
+# head(ts_tri_sort, 20)
+```
+
+```{r, results='hide', echo=TRUE}
+# total word instances 
+total <- sum(bs_uni_row_total)
+```
+**Efficiency and accuracy assessments:** The number of unique words needed to cover certain porportion of all word instances are estimated. The total number of word instances in 10% of the cleaned blog corpus is `r total`. 
+```{r, results='hide', echo=FALSE}
+bs_uni_cumsum <- cumsum(bs_uni_sort)
+# tail(bs_uni_cumsum[bs_uni_cumsum <= sum(bs_uni_row_total/2)])
+bs_50 <- length((bs_uni_cumsum[bs_uni_cumsum <= sum(bs_uni_row_total/2)])) # to cover 50% word instances
+bs_90 <- length((bs_uni_cumsum[bs_uni_cumsum <= sum(bs_uni_row_total * 0.9)])) # to cover 90% word instances
+```
+
+To cover 50% of the word instances, `r bs_50` unique words are needed. To cover 90%, `r bs_90` unique words are needed. 
+
+## Future Tasks
+**Build predicitive language model:** The general strategy is as followed.
+1. Rebuild n-grams models, up to 4-grams, pooling blogs, news, and twitter data and including stop words. Probability of a term is modeled based on the [Markov chain assumption](http://en.wikipedia.org/wiki/Markov_chain) that the occurrence of a term is dependent on the preceding terms. 
+2. Remove sparse terms, threshold to be determined. 
+3. Use a [backoff strategy](http://en.wikipedia.org/wiki/Katz's_back-off_model) to predict so that if the probability a quad-gram is very low, use tri-gram to predict, and so on. 
+
+**Create interactive Shiny App:** This interactive web app will take in text input and return the predicted upcoming terms. It is still being considered whether there will be a separate predictor for each of blogs, news, and twitter feeds. In addition, it is also being considered that whether the user has a choice for outputing unigram, bigram, or trigram. 
