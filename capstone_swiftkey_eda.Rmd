@@ -86,6 +86,7 @@ tlen <- length(twit)
 The blog, news, and twitter corpora have a size of `r bsize`, `r nsize`, and `r tsize`; and there are `r blen`, `r nlen`, and `r tlen` lines, respecitively. Note that the news data has unexpectedly few lines. Running the code in Mac and command line `wc -l en_US.news.txt` confirm that the actual number of lines is 1010242. This is likely to be caused by the Windows OS mishandling some characters/lines. 
 
 The Brief summaries of entries in each corpora are given by simply counting characters.
+
 **blog**
 ```{r}
 summary(nchar(blog))
